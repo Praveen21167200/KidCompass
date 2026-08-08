@@ -140,31 +140,56 @@ export function computeSuggestions(logs, { days = 30 } = {}) {
     .slice(0, 3)
     .map(([trigger, count]) => ({ trigger, count, tip: TRIGGER_TIPS[trigger] || null }));
 
-  // Build recommendations.
-  const recommendations = [];
-
-  const worst = environments[0];
-  if (worst && (worst.level === 'struggles' || worst.level === 'high-distress')) {
-    recommendations.push({
-      priority: 'high',
-      title: `Support your child in "${worst.environment}"`,
-      reason: `Average comfort here is low (${worst.score}) across ${worst.count} log(s).`,
-      actions: worst.strategies,
-    });
-  }
-
-  const best = environments[environments.length - 1];
-  if (best && best.level === 'thrives') {
-    recommendations.push({
+  // Build recommendations: one per environment the child has been logged in,
+  // tailored to that environment's own comfort level (not just the top score).
+  const recommendations = environments.map((env) => {
+    const strategies = COPING[env.environment] || COPING.places;
+    if (env.level === 'high-distress') {
+      return {
+        priority: 'high',
+        environment: env.environment,
+        level: env.level,
+        title: `High distress in "${env.environment}"`,
+        reason: `Very low comfort here (score ${env.score}) across ${env.count} log(s). This needs the most support.`,
+        actions: strategies,
+      };
+    }
+    if (env.level === 'struggles') {
+      return {
+        priority: 'high',
+        environment: env.environment,
+        level: env.level,
+        title: `Support your child in "${env.environment}"`,
+        reason: `Average comfort here is low (score ${env.score}) across ${env.count} log(s).`,
+        actions: strategies,
+      };
+    }
+    if (env.level === 'mixed') {
+      return {
+        priority: 'medium',
+        environment: env.environment,
+        level: env.level,
+        title: `Keep an eye on "${env.environment}"`,
+        reason: `Mixed results here (score ${env.score}) across ${env.count} log(s) — some good days, some hard ones.`,
+        actions: [
+          'Note what differs between the good and hard visits (time of day, crowd, hunger, tiredness).',
+          ...strategies.slice(0, 2),
+        ],
+      };
+    }
+    // thrives
+    return {
       priority: 'leverage',
-      title: `Lean into "${best.environment}"`,
-      reason: `Your child consistently does well here (score ${best.score}). Use it to build confidence and as a regulating reward.`,
+      environment: env.environment,
+      level: env.level,
+      title: `Lean into "${env.environment}"`,
+      reason: `Your child consistently does well here (score ${env.score}) across ${env.count} log(s). Use it to build confidence and as a regulating reward.`,
       actions: [
-        `Schedule "${best.environment}" after harder activities to help recovery.`,
-        'Note what specifically works here and transfer those elements elsewhere.',
+        `Schedule "${env.environment}" after harder activities to help recovery.`,
+        'Note what specifically works here and transfer those elements to tougher environments.',
       ],
-    });
-  }
+    };
+  });
 
   if (topTriggers.length) {
     recommendations.push({
