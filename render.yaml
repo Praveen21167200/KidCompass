@@ -10,7 +10,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: "18"
+        value: "22"
       # Auto-generated strong secret for signing JWTs.
       - key: JWT_SECRET
         generateValue: true
