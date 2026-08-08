@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: kidcompass
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "18"
+      # Auto-generated strong secret for signing JWTs.
+      - key: JWT_SECRET
+        generateValue: true
+      # Set this in the Render dashboard to enable Google SSO.
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
+
+      # --- Persistent data (optional) ------------------------------------
+      # The free plan uses an EPHEMERAL disk, so JSON data resets on each
+      # deploy/restart. To persist data:
+      #   1. Upgrade this service to a paid instance type, then uncomment the
+      #      `disk` block below and the DATA_DIR env var, OR
+      #   2. Switch to a database (recommended for production).
+      # - key: DATA_DIR
+      #   value: /data
+
+    # disk:
+    #   name: kidcompass-data
+    #   mountPath: /data
+    #   sizeGB: 1

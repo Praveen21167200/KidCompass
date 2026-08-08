@@ -1,0 +1,19 @@
+# Node
+node_modules/
+server/data/
+server/.env
+.env
+
+# Android build artifacts
+app/build/
+.gradle/
+local.properties
+
+# Downloaded tooling (don't commit these large dirs)
+android-sdk/
+gradle-8.7/
+cmdline-tools.zip
+gradle.zip
+
+# OS
+.DS_Store
