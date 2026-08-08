@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KidCompass — Child Behaviour Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Auth screen -->
+  <div id="authView" class="center">
+    <div class="card">
+      <h1>KidCompass</h1>
+      <p class="sub">Track your child's day. Get guidance.</p>
+
+      <div class="tabs">
+        <button class="tab active" id="tabLogin">Log in</button>
+        <button class="tab" id="tabSignup">Sign up</button>
+      </div>
+
+      <div id="nameRow" class="hidden">
+        <label for="name">Your name</label>
+        <input id="name" type="text" autocomplete="name" />
+      </div>
+
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" />
+
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+
+      <div id="confirmRow" class="hidden">
+        <label for="confirm">Confirm password</label>
+        <input id="confirm" type="password" />
+      </div>
+
+      <button class="primary" id="submitBtn">Log in</button>
+      <div class="msg" id="msg"></div>
+      <p class="sub" style="margin-top:16px;font-size:12px">
+        This is a private, on-device app — your data stays in this browser only.
+      </p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashView" class="hidden">
+    <header class="topbar">
+      <div class="brand">🧭 KidCompass</div>
+      <div class="userbox">
+        <span id="whoami"></span>
+        <button class="link" id="logoutBtn">Log out</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel">
+        <h2>Children</h2>
+        <ul id="childList" class="childlist"></ul>
+        <details class="addchild">
+          <summary>+ Add child</summary>
+          <label>Name</label>
+          <input id="childName" type="text" />
+          <label>Age</label>
+          <input id="childAge" type="number" min="0" max="25" />
+          <label>Notes (optional)</label>
+          <input id="childNotes" type="text" placeholder="e.g. sensory sensitive" />
+          <button class="primary small" id="addChildBtn">Add</button>
+          <div class="msg" id="childMsg"></div>
+        </details>
+      </aside>
+
+      <section class="content">
+        <div id="noChild" class="empty">Select or add a child to begin.</div>
+
+        <div id="childPanel" class="hidden">
+          <h2 id="childTitle"></h2>
+
+          <div class="block">
+            <h3>Log today's observation</h3>
+            <div class="grid">
+              <div>
+                <label>Date</label>
+                <input id="logDate" type="date" />
+              </div>
+              <div>
+                <label>Environment</label>
+                <select id="logEnv"></select>
+              </div>
+              <div>
+                <label>Reaction</label>
+                <select id="logReaction"></select>
+              </div>
+              <div>
+                <label>Intensity (1–5): <span id="intensityVal">3</span></label>
+                <input id="logIntensity" type="range" min="1" max="5" value="3" />
+              </div>
+            </div>
+            <label>Activity (optional)</label>
+            <input id="logActivity" type="text" placeholder="e.g. watched a movie" />
+            <label>Triggers</label>
+            <div id="triggerChips" class="chips"></div>
+            <label>Notes (optional)</label>
+            <input id="logNotes" type="text" />
+            <button class="primary" id="addLogBtn">Save log</button>
+            <div class="msg" id="logMsg"></div>
+          </div>
+
+          <div class="block">
+            <div class="rowhead">
+              <h3>Suggested actions</h3>
+              <button class="link" id="refreshSug">Refresh</button>
+            </div>
+            <div id="suggestions"></div>
+          </div>
+
+          <div class="block">
+            <h3>Recent logs</h3>
+            <div id="history"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
