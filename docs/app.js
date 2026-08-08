@@ -56,10 +56,23 @@ const Children = {
     write(KEYS.children, rows);
     return child;
   },
+  update(id, { name, age, notes }) {
+    const rows = Children.all();
+    const c = rows.find((r) => r.id === id);
+    if (!c) return null;
+    c.name = name; c.age = age ?? null; c.notes = notes ?? '';
+    write(KEYS.children, rows);
+    return c;
+  },
+  remove(id) {
+    write(KEYS.children, Children.all().filter((c) => c.id !== id));
+    write(KEYS.logs, Logs.all().filter((l) => l.childId !== id));
+  },
 };
 
 const Logs = {
   all: () => read(KEYS.logs, []),
+  get: (id) => Logs.all().find((l) => l.id === id) || null,
   forChild: (childId) => Logs.all().filter((l) => l.childId === childId).sort((a, b) => (a.date < b.date ? 1 : -1)),
   add(childId, data) {
     const rows = Logs.all();
@@ -75,12 +88,96 @@ const Logs = {
     write(KEYS.logs, rows);
     return log;
   },
+  update(id, data) {
+    const rows = Logs.all();
+    const l = rows.find((r) => r.id === id);
+    if (!l) return null;
+    l.date = data.date || l.date;
+    l.environment = data.environment;
+    l.reaction = data.reaction;
+    l.intensity = Number(data.intensity) || 3;
+    l.activity = data.activity ?? '';
+    l.triggers = Array.isArray(data.triggers) ? data.triggers : [];
+    l.notes = data.notes ?? '';
+    write(KEYS.logs, rows);
+    return l;
+  },
+  remove(id) {
+    write(KEYS.logs, Logs.all().filter((l) => l.id !== id));
+  },
 };
+
+// ---------------- export / import ----------------
+function exportData() {
+  const email = currentEmail();
+  const children = Children.forParent(email);
+  const childIds = new Set(children.map((c) => c.id));
+  const logs = Logs.all().filter((l) => childIds.has(l.childId));
+  const payload = {
+    app: 'KidCompass', version: 1, exportedAt: new Date().toISOString(),
+    account: email, children, logs,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `kidcompass-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (data.app !== 'KidCompass' || !Array.isArray(data.children) || !Array.isArray(data.logs)) {
+        alert('Not a valid KidCompass backup file.');
+        return;
+      }
+      const email = currentEmail();
+      const existingChildren = Children.all();
+      const existingLogs = Logs.all();
+      const childIds = new Set(existingChildren.map((c) => c.id));
+      const logIds = new Set(existingLogs.map((l) => l.id));
+      let addedC = 0, addedL = 0;
+      for (const c of data.children) {
+        if (childIds.has(c.id)) continue;
+        existingChildren.push({ ...c, parentEmail: email });
+        childIds.add(c.id); addedC++;
+      }
+      const validChildIds = new Set(existingChildren.map((c) => c.id));
+      for (const l of data.logs) {
+        if (logIds.has(l.id) || !validChildIds.has(l.childId)) continue;
+        existingLogs.push(l);
+        logIds.add(l.id); addedL++;
+      }
+      write(KEYS.children, existingChildren);
+      write(KEYS.logs, existingLogs);
+      alert(`Imported ${addedC} child(ren) and ${addedL} log(s).`);
+      activeChild = null;
+      loadChildren();
+    } catch (e) {
+      alert('Could not read the file: ' + e.message);
+    }
+  };
+  reader.readAsText(file);
+}
 
 // ---------------- state ----------------
 let mode = 'login';
 let activeChild = null;
 let selectedTriggers = new Set();
+let editingLogId = null;
+let editingChildId = null;
+let windowDays = 30;
+
+// Comfort score for a single log (mirrors engine.js logScore).
+function logScoreOf(log) {
+  const valence = (REACTIONS[log.reaction] || {}).valence ?? 0;
+  const intensity = Math.min(5, Math.max(1, Number(log.intensity) || 3));
+  return valence * (intensity / 3);
+}
 
 function show(view) {
   $('authView').classList.toggle('hidden', view !== 'auth');
@@ -180,12 +277,50 @@ function loadChildren() {
 function renderChildList(children) {
   $('childList').innerHTML = children.map((c) => `
     <li data-id="${c.id}" class="${activeChild && activeChild.id === c.id ? 'active' : ''}">
-      ${esc(c.name)}
-      <div class="meta">${c.age != null ? 'Age ' + c.age : ''}${c.notes ? ' · ' + esc(c.notes) : ''}</div>
+      <div class="ci-main">
+        ${esc(c.name)}
+        <div class="meta">${c.age != null ? 'Age ' + c.age : ''}${c.notes ? ' · ' + esc(c.notes) : ''}</div>
+      </div>
+      <div class="ci-actions">
+        <button class="icon" data-act="edit" title="Edit">✏️</button>
+        <button class="icon" data-act="del" title="Delete">🗑️</button>
+      </div>
     </li>`).join('');
   $('childList').querySelectorAll('li').forEach((li) => {
-    li.onclick = () => selectChild(children.find((c) => c.id === li.dataset.id));
+    const child = children.find((c) => c.id === li.dataset.id);
+    li.querySelector('.ci-main').onclick = () => selectChild(child);
+    li.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); startEditChild(child); };
+    li.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); deleteChild(child); };
   });
+}
+
+function startEditChild(child) {
+  editingChildId = child.id;
+  $('childName').value = child.name;
+  $('childAge').value = child.age ?? '';
+  $('childNotes').value = child.notes ?? '';
+  $('addChildBtn').textContent = 'Save changes';
+  $('addChildSummary').textContent = 'Editing child';
+  const details = $('addChildDetails');
+  if (details) details.open = true;
+  $('cancelChildEdit').classList.remove('hidden');
+}
+
+function cancelEditChild() {
+  editingChildId = null;
+  $('childName').value = ''; $('childAge').value = ''; $('childNotes').value = '';
+  $('addChildBtn').textContent = 'Add';
+  $('addChildSummary').textContent = '+ Add child';
+  $('cancelChildEdit').classList.add('hidden');
+  $('childMsg').textContent = '';
+}
+
+function deleteChild(child) {
+  if (!confirm(`Delete "${child.name}" and all their logs? This cannot be undone.`)) return;
+  Children.remove(child.id);
+  if (activeChild && activeChild.id === child.id) activeChild = null;
+  if (editingChildId === child.id) cancelEditChild();
+  loadChildren();
 }
 
 function addChild() {
@@ -195,6 +330,16 @@ function addChild() {
   const m = $('childMsg');
   if (!name) { m.className = 'msg err'; m.textContent = 'Name is required'; return; }
   const ageNum = age === '' ? null : Number(age);
+  if (editingChildId) {
+    Children.update(editingChildId, { name, age: ageNum, notes });
+    const id = editingChildId;
+    cancelEditChild();
+    m.className = 'msg ok'; m.textContent = 'Saved!';
+    loadChildren();
+    const updated = Children.get(currentEmail(), id);
+    if (updated) selectChild(updated);
+    return;
+  }
   const child = Children.add(currentEmail(), { name, age: ageNum, notes });
   $('childName').value = ''; $('childAge').value = ''; $('childNotes').value = '';
   m.className = 'msg ok'; m.textContent = 'Added!';
@@ -205,6 +350,7 @@ function addChild() {
 function selectChild(child) {
   if (!child) return;
   activeChild = child;
+  cancelEditLog();
   renderChildList(Children.forParent(currentEmail()));
   $('noChild').classList.add('hidden');
   $('childPanel').classList.remove('hidden');
@@ -213,9 +359,48 @@ function selectChild(child) {
   loadHistory();
 }
 
+function setTriggerChips(triggers) {
+  selectedTriggers = new Set(triggers || []);
+  $('triggerChips').querySelectorAll('.chip').forEach((c) => {
+    c.classList.toggle('on', selectedTriggers.has(c.dataset.t));
+  });
+}
+
+function startEditLog(log) {
+  editingLogId = log.id;
+  $('logDate').value = log.date;
+  $('logEnv').value = log.environment;
+  $('logReaction').value = log.reaction;
+  $('logIntensity').value = log.intensity;
+  $('intensityVal').textContent = log.intensity;
+  $('logActivity').value = log.activity || '';
+  $('logNotes').value = log.notes || '';
+  setTriggerChips(log.triggers);
+  $('addLogBtn').textContent = 'Update log';
+  $('cancelLogEdit').classList.remove('hidden');
+  $('logForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelEditLog() {
+  editingLogId = null;
+  $('addLogBtn').textContent = 'Save log';
+  $('cancelLogEdit').classList.add('hidden');
+  $('logActivity').value = ''; $('logNotes').value = '';
+  setTriggerChips([]);
+  $('logMsg').textContent = '';
+}
+
+function deleteLog(log) {
+  if (!confirm('Delete this log entry?')) return;
+  Logs.remove(log.id);
+  if (editingLogId === log.id) cancelEditLog();
+  loadSuggestions();
+  loadHistory();
+}
+
 function addLog() {
   const m = $('logMsg');
-  Logs.add(activeChild.id, {
+  const data = {
     date: $('logDate').value,
     environment: $('logEnv').value,
     reaction: $('logReaction').value,
@@ -223,11 +408,18 @@ function addLog() {
     activity: $('logActivity').value.trim(),
     triggers: [...selectedTriggers],
     notes: $('logNotes').value.trim(),
-  });
-  m.className = 'msg ok'; m.textContent = 'Log saved.';
-  $('logActivity').value = ''; $('logNotes').value = '';
-  selectedTriggers.clear();
-  $('triggerChips').querySelectorAll('.chip').forEach((c) => c.classList.remove('on'));
+  };
+  if (editingLogId) {
+    Logs.update(editingLogId, data);
+    cancelEditLog();
+    m.className = 'msg ok'; m.textContent = 'Log updated.';
+  } else {
+    Logs.add(activeChild.id, data);
+    m.className = 'msg ok'; m.textContent = 'Log saved.';
+    $('logActivity').value = ''; $('logNotes').value = '';
+    selectedTriggers.clear();
+    $('triggerChips').querySelectorAll('.chip').forEach((c) => c.classList.remove('on'));
+  }
   loadSuggestions();
   loadHistory();
 }
@@ -236,25 +428,69 @@ function loadHistory() {
   const logs = Logs.forChild(activeChild.id);
   if (!logs.length) { $('history').innerHTML = '<p class="sub">No logs yet.</p>'; return; }
   const rLabel = (k) => (REACTIONS[k] || {}).label || k;
-  $('history').innerHTML = logs.slice(0, 12).map((l) => `
-    <div class="log-item">
-      <div class="top"><strong>${esc(l.environment)}</strong><span class="sub">${esc(l.date)}</span></div>
+  $('history').innerHTML = logs.slice(0, 20).map((l) => `
+    <div class="log-item" data-id="${l.id}">
+      <div class="top">
+        <strong>${esc(l.environment)}</strong>
+        <span class="li-right"><span class="sub">${esc(l.date)}</span>
+          <button class="icon" data-act="edit" title="Edit">✏️</button>
+          <button class="icon" data-act="del" title="Delete">🗑️</button>
+        </span>
+      </div>
       <div>${esc(rLabel(l.reaction))} · intensity ${l.intensity}${l.activity ? ' · ' + esc(l.activity) : ''}</div>
       ${(l.triggers && l.triggers.length) ? `<div class="tags">triggers: ${l.triggers.map(esc).join(', ')}</div>` : ''}
       ${l.notes ? `<div class="tags">${esc(l.notes)}</div>` : ''}
     </div>`).join('');
+  $('history').querySelectorAll('.log-item').forEach((item) => {
+    const log = logs.find((l) => l.id === item.dataset.id);
+    item.querySelector('[data-act="edit"]').onclick = () => startEditLog(log);
+    item.querySelector('[data-act="del"]').onclick = () => deleteLog(log);
+  });
+}
+
+// Build an SVG sparkline of daily average comfort over the window.
+function renderChart(logs) {
+  const el = $('trendChart');
+  const cutoff = windowDays >= 100000 ? '0000-00-00'
+    : new Date(Date.now() - windowDays * 86400000).toISOString().slice(0, 10);
+  const recent = logs.filter((l) => l.date >= cutoff);
+  const byDate = {};
+  for (const l of recent) (byDate[l.date] ||= []).push(logScoreOf(l));
+  const days = Object.keys(byDate).sort();
+  if (days.length < 2) { el.innerHTML = '<p class="sub">Log on at least two different days to see a trend chart.</p>'; return; }
+  const points = days.map((d) => byDate[d].reduce((a, b) => a + b, 0) / byDate[d].length);
+
+  const W = 600, H = 140, pad = 24, minY = -4, maxY = 4;
+  const x = (i) => pad + (i * (W - 2 * pad)) / (points.length - 1);
+  const y = (v) => pad + ((maxY - v) / (maxY - minY)) * (H - 2 * pad);
+  const zeroY = y(0);
+  const line = points.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const dots = points.map((v, i) => {
+    const color = v >= 1 ? '#16a34a' : v >= 0 ? '#d97706' : '#dc2626';
+    return `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${color}"><title>${esc(days[i])}: ${v.toFixed(2)}</title></circle>`;
+  }).join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="spark" preserveAspectRatio="none" role="img" aria-label="Comfort trend chart">
+    <line x1="${pad}" y1="${zeroY}" x2="${W - pad}" y2="${zeroY}" stroke="#d1d5db" stroke-dasharray="4 4"/>
+    <text x="2" y="${pad + 4}" font-size="9" fill="#9ca3af">+4 thrives</text>
+    <text x="2" y="${H - pad + 4}" font-size="9" fill="#9ca3af">-4 distress</text>
+    <path d="${line}" fill="none" stroke="var(--brand)" stroke-width="2"/>
+    ${dots}
+  </svg>`;
 }
 
 function loadSuggestions() {
-  const s = computeSuggestions(Logs.forChild(activeChild.id), { days: 30 });
+  const logs = Logs.forChild(activeChild.id);
+  renderChart(logs);
+  const s = computeSuggestions(logs, { days: windowDays });
   const el = $('suggestions');
   if (!s.totalLogs) { el.innerHTML = `<p class="sub">${esc(s.message)}</p>`; return; }
   const levelClass = (lvl) => (lvl === 'high-distress' ? 'highdistress' : lvl);
   const trend = s.trend ? ` · trend: <strong>${s.trend.direction}</strong>` : '';
+  const windowLabel = windowDays >= 100000 ? 'all time' : `last ${s.window} days`;
 
   let html = `<div class="overall">
     <span class="badge ${levelClass(s.overallLevel)}">${esc(s.overallLevel)}</span>
-    <span class="sub">${s.totalLogs} log(s), last ${s.window} days${trend}</span>
+    <span class="sub">${s.totalLogs} log(s), ${windowLabel}${trend}</span>
   </div>`;
 
   html += s.environments.map((e) => {
@@ -283,10 +519,16 @@ $('tabSignup').onclick = () => setMode('signup');
 $('submitBtn').onclick = submitAuth;
 $('logoutBtn').onclick = logout;
 $('addChildBtn').onclick = addChild;
+$('cancelChildEdit').onclick = cancelEditChild;
 $('addLogBtn').onclick = addLog;
+$('cancelLogEdit').onclick = cancelEditLog;
 $('refreshSug').onclick = () => activeChild && loadSuggestions();
 $('logIntensity').oninput = (e) => ($('intensityVal').textContent = e.target.value);
 $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
+$('windowSelect').onchange = (e) => { windowDays = Number(e.target.value); if (activeChild) loadSuggestions(); };
+$('exportBtn').onclick = exportData;
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ''; };
 
 // ---------------- boot ----------------
 (function boot() {

@@ -63,7 +63,19 @@ button { font-family: inherit; }
 .childlist li:hover { background: var(--brand-light); }
 .childlist li.active { background: var(--brand-light); border-color: var(--brand); font-weight: 600; }
 .childlist .meta { font-size: 12px; color: var(--muted); }
+.childlist li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ci-main { flex: 1; min-width: 0; }
+.ci-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.childlist li:hover .ci-actions, .childlist li.active .ci-actions { opacity: 1; }
+.icon { background: none; border: none; cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 6px; line-height: 1; }
+.icon:hover { background: rgba(0,0,0,.06); }
 .addchild summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 14px; }
+
+.sug-controls { display: flex; align-items: center; gap: 10px; }
+.sug-controls select { width: auto; padding: 6px 8px; font-size: 13px; }
+.trendchart { margin: 4px 0 14px; }
+.spark { width: 100%; height: auto; display: block; }
+.li-right { display: flex; align-items: center; gap: 4px; }
 
 .content { min-width: 0; }
 .empty { background: #fff; border: 1px dashed var(--border); border-radius: 12px;
